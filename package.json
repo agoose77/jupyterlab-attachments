@@ -1,5 +1,5 @@
 {
-  "name": "jupyterlab-attachments",
+  "name": "@agoose77/jupyterlab-attachments",
   "version": "0.1.0",
   "description": "A JupyterLab extension to add support for attachments in the JupyterLab editor.",
   "keywords": [
