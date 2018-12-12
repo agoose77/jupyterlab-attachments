@@ -7,19 +7,17 @@ import {
 } from '@jupyterlab/mainmenu'
 
 import {
-    ICommandPalette
+    ICommandPalette,
+    Clipboard
 } from '@jupyterlab/apputils';
+
 import {
-    INotebookTracker
+    INotebookTracker, Notebook
 } from '@jupyterlab/notebook';
 
 import {
-    ICellModel, IMarkdownCellModel, Cell
+    ICellModel, IAttachmentsCellModel, Cell
 } from '@jupyterlab/cells'
-
-// import {
-//     JSONObject,
-// } from '@phosphor/coreutils';
 
 import {
     getOpenPath,
@@ -27,28 +25,29 @@ import {
     IDocumentManager,
 } from '@jupyterlab/docmanager';
 
-
-import {nbformat} from '@jupyterlab/coreutils';
-
-//
-// import {
-//     Widget, Menu
-// } from '@phosphor/widgets';
+import {
+    nbformat
+} from '@jupyterlab/coreutils';
 
 import '../style/index.css';
 
+/**
+ * The mimetype used for Jupyter cell data.
+ */
+const JUPYTER_ATTACHMENTS_MIME = 'application/vnd.jupyter.attachments';
+
 
 namespace CommandIDs {
-    export const cutCellAttachment = 'notebook:cut-cell-attachment';
-    export const copyCellAttachment = 'notebook:copy-cell-attachment';
-    export const pasteCellAttachment = 'notebook:paste-cell-attachment';
+    export const cutCellAttachments = 'notebook:cut-cell-attachment';
+    export const copyCellAttachments = 'notebook:copy-cell-attachment';
+    export const pasteCellAttachments = 'notebook:paste-cell-attachment';
     export const insertImage = 'notebook:insert-image';
 }
 ;
 
 
-function cellModelIsIMarkdownCellModel(model: ICellModel): model is IMarkdownCellModel {
-    return (<IMarkdownCellModel>model).type === "markdown";
+function cellModelIsIAttachmentsCellModel(model: ICellModel): model is IAttachmentsCellModel {
+    return (<IAttachmentsCellModel>model).attachments !== undefined;
 }
 
 
@@ -80,6 +79,38 @@ function getActiveCellIfSingle(tracker: INotebookTracker): Cell {
     return content.activeCell;
 }
 
+
+function cutOrCopyAttachments(notebook: Notebook, cut: boolean = false) {
+    const model = notebook.activeCell.model;
+    if (!cellModelIsIAttachmentsCellModel(model))
+        return;
+
+    const clipboard = Clipboard.getInstance();
+    const attachmentCells = notebook.widgets.filter(cell => notebook.isSelectedOrActive(cell)
+    ).filter(
+        cell => cellModelIsIAttachmentsCellModel(cell.model)
+    );
+
+    notebook.mode = 'command';
+    clipboard.clear();
+
+    // Copy attachments
+    const attachmentsJSONArray = attachmentCells.map(
+        cell => (<IAttachmentsCellModel>cell.model).attachments.toJSON()
+    );
+    clipboard.setData(JUPYTER_ATTACHMENTS_MIME, attachmentsJSONArray);
+
+    if (cut) {
+        // Clear attachments
+        attachmentCells.forEach(cell => {
+            (<IAttachmentsCellModel>cell.model).attachments.clear()
+        });
+    }
+
+    notebook.deselectAll();
+}
+
+
 /**
  * Initialization data for the jupyterlab-attachments extension.
  */
@@ -99,24 +130,19 @@ const extension: JupyterLabPlugin<void> = {
                     return false;
 
                 // Can only have one active cell
-                let activeCell = getActiveCellIfSingle(notebookTracker);
+                const activeCell = getActiveCellIfSingle(notebookTracker);
                 if (activeCell === null)
                     return false;
 
-                return cellModelIsIMarkdownCellModel(activeCell.model);
+                // Must be a markdown cell (supporting attachments)
+                return activeCell.model.type == "markdown";
             },
             execute: () => {
-                let activeCell = notebookTracker.activeCell;
-                if (activeCell === null)
+                const model = notebookTracker.activeCell.model;
+                if (!cellModelIsIAttachmentsCellModel(model))
                     return;
 
-                let model = activeCell.model;
-                if (!cellModelIsIMarkdownCellModel(model))
-                    return;
-
-                let attachments = model.attachments;
-
-                attachments.keys.forEach(key => {console.log(`Key ${key}`)});
+                const attachments = model.attachments;
 
                 // Dialogue to request path of image
                 getOpenPath(docManager.services.contents).then(path => {
@@ -129,15 +155,15 @@ const extension: JupyterLabPlugin<void> = {
                         type: "file", format: "base64"
                     }).then(args => {
                             // Create MIMEBundle
-                            let {name, mimetype, content} = args;
-                            let bundle: nbformat.IMimeBundle = {};
+                            const {name, mimetype, content} = args;
+                            const bundle: nbformat.IMimeBundle = {};
                             bundle[mimetype] = content;
 
                             // Store attachment
                             attachments.set(name, bundle);
 
                             // Markdown template string to insert image
-                            let markdown = `![${name}](attachment:${name})`;
+                            const markdown = `![${name}](attachment:${name})`;
                             model.value.insert(model.value.text.length, markdown);
                         },
                         () => {
@@ -148,17 +174,90 @@ const extension: JupyterLabPlugin<void> = {
             }
         });
 
-        // add to mainMenu
 
-        // const cellAttachmentActionsGroup = [CommandIDs.cutCellAttachment,
-        //     CommandIDs.copyCellAttachment,
-        //     CommandIDs.pasteCellAttachment].map(
-        //     command => {
-        //         return {command};
-        //     }
-        // );
+        /**
+         * Test whether the cell attachment commands (cut, copy, paste) are enabled
+         */
+        function cellAttachmentCommandIsEnabled() {
+            if (!activeNotebookExists(app, notebookTracker))
+                return false;
 
-        // mainMenu.editMenu.addGroup(cellAttachmentActionsGroup, 10);
+            const notebook = notebookTracker.currentWidget.content;
+            const selectedCells = notebook.widgets.filter(cell => notebook.isSelectedOrActive(cell));
+            // As long as cells are selected or active
+            return selectedCells.length > 0;
+        }
+
+        app.commands.addCommand(CommandIDs.cutCellAttachments, {
+            label: 'Cut Cell Attachments',
+            isEnabled: cellAttachmentCommandIsEnabled,
+            execute: () => {
+                cutOrCopyAttachments(notebookTracker.currentWidget.content, true);
+            }
+
+        });
+
+        app.commands.addCommand(CommandIDs.copyCellAttachments, {
+            label: 'Copy Cell Attachments',
+            isEnabled: cellAttachmentCommandIsEnabled,
+            execute: () => {
+                cutOrCopyAttachments(notebookTracker.currentWidget.content);
+            }
+        });
+
+        app.commands.addCommand(CommandIDs.pasteCellAttachments, {
+            label: 'Paste Cell Attachments',
+            isEnabled: () => {
+                const clipboard = Clipboard.getInstance();
+                if (!clipboard.hasData(JUPYTER_ATTACHMENTS_MIME)) {
+                    return false;
+                }
+                return cellAttachmentCommandIsEnabled();
+            },
+
+            execute: () => {
+                const notebook = notebookTracker.currentWidget.content;
+                const attachmentCells = notebook.widgets.filter(
+                    cell => notebook.isSelectedOrActive(cell)
+                ).filter(
+                    cell => cellModelIsIAttachmentsCellModel(cell.model)
+                );
+
+                const clipboard = Clipboard.getInstance();
+                if (!clipboard.hasData(JUPYTER_ATTACHMENTS_MIME)) {
+                    return;
+                }
+
+                const attachmentData = clipboard.getData(JUPYTER_ATTACHMENTS_MIME) as nbformat.IAttachments[];
+                notebook.mode = 'command';
+
+                console.log(attachmentData);
+
+                attachmentData.forEach(data => {
+                    attachmentCells.forEach(cell => {
+                            Object.keys(data).forEach(key => {
+                                const model = (<IAttachmentsCellModel>cell.model);
+                                model.attachments.set(key, data[key])
+                            })
+                        }
+                    )
+                });
+
+
+                notebook.deselectAll();
+            }
+        });
+
+        // Add to main menu
+        const cellAttachmentActionsGroup = [CommandIDs.cutCellAttachments,
+            CommandIDs.copyCellAttachments,
+            CommandIDs.pasteCellAttachments].map(
+            command => {
+                return {command};
+            }
+        );
+
+        mainMenu.editMenu.addGroup(cellAttachmentActionsGroup, 10);
 
         // Add to edit menu
         const insertImageGroup = [CommandIDs.insertImage].map(
@@ -166,10 +265,10 @@ const extension: JupyterLabPlugin<void> = {
                 return {command};
             }
         );
-        mainMenu.editMenu.addGroup(insertImageGroup, 200);
+        mainMenu.editMenu.addGroup(insertImageGroup, 11);
 
         // Add to command palette
-        let category = 'Notebook Cell Operations';
+        const category = 'Notebook Cell Operations';
         [
             CommandIDs.insertImage
         ].forEach(command => {
