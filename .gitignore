@@ -1,3 +1,5 @@
 .ipynb_checkpoints
 .idea
 Images2
+*.png
+*.ipynb
