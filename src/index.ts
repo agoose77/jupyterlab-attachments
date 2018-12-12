@@ -116,6 +116,8 @@ const extension: JupyterLabPlugin<void> = {
 
                 let attachments = model.attachments;
 
+                attachments.keys.forEach(key => {console.log(`Key ${key}`)});
+
                 // Dialogue to request path of image
                 getOpenPath(docManager.services.contents).then(path => {
                     if (!path) {
@@ -135,7 +137,7 @@ const extension: JupyterLabPlugin<void> = {
                             attachments.set(name, bundle);
 
                             // Markdown template string to insert image
-                            let markdown = `![${name}](${name})`;
+                            let markdown = `![${name}](attachment:${name})`;
                             model.value.insert(model.value.text.length, markdown);
                         },
                         () => {
