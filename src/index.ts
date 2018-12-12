@@ -14,7 +14,7 @@ import {
 } from '@jupyterlab/notebook';
 
 import {
-    ICellModel, IMarkdownCellModel
+    ICellModel, IMarkdownCellModel, Cell
 } from '@jupyterlab/cells'
 
 // import {
@@ -28,7 +28,7 @@ import {
 } from '@jupyterlab/docmanager';
 
 
-import { nbformat } from '@jupyterlab/coreutils';
+import {nbformat} from '@jupyterlab/coreutils';
 
 //
 // import {
@@ -48,8 +48,36 @@ namespace CommandIDs {
 
 
 function cellModelIsIMarkdownCellModel(model: ICellModel): model is IMarkdownCellModel {
-    console.log((<IMarkdownCellModel>model).type, "TYPE",  (<IMarkdownCellModel>model).type === "markdown");
     return (<IMarkdownCellModel>model).type === "markdown";
+}
+
+
+/**
+ * Whether there is an active notebook.
+ */
+function activeNotebookExists(app: JupyterLab, tracker: INotebookTracker): boolean {
+    return (
+        tracker.currentWidget !== null &&
+        tracker.currentWidget === app.shell.currentWidget
+    );
+}
+
+
+/**
+ * Return active cell if only single cell is selected else null.
+ */
+function getActiveCellIfSingle(tracker: INotebookTracker): Cell {
+    const {content} = tracker.currentWidget;
+    // If there are selections that are not the active cell,
+    // this command is confusing, so disable it.
+
+    const index = content.activeCellIndex;
+    for (let i = 0; i < content.widgets.length; ++i) {
+        if (content.isSelected(content.widgets[i]) && i !== index) {
+            return null;
+        }
+    }
+    return content.activeCell;
 }
 
 /**
@@ -66,43 +94,55 @@ const extension: JupyterLabPlugin<void> = {
         // Add an application command
         app.commands.addCommand(CommandIDs.insertImage, {
             label: 'Insert Image',
+            isEnabled: () => {
+                if (!activeNotebookExists(app, notebookTracker))
+                    return false;
+
+                // Can only have one active cell
+                let activeCell = getActiveCellIfSingle(notebookTracker);
+                if (activeCell === null)
+                    return false;
+
+                return cellModelIsIMarkdownCellModel(activeCell.model);
+            },
             execute: () => {
-                let model = notebookTracker.activeCell.model;
-                if (cellModelIsIMarkdownCellModel(model)) {
-                    console.log("ISMD");
-                    let attachments = model.attachments;
+                let activeCell = notebookTracker.activeCell;
+                if (activeCell === null)
+                    return;
 
-                    // Print existing
-                    attachments.keys.forEach(key => {
-                        console.log(key, attachments.get(key).toJSON(), attachments.get(key));
-                    });
+                let model = activeCell.model;
+                if (!cellModelIsIMarkdownCellModel(model))
+                    return;
 
-                    // Dialogue to request path of image
-                    getOpenPath(docManager.services.contents).then(path => {
-                        if (!path) {
-                            return;
+                let attachments = model.attachments;
+
+                // Dialogue to request path of image
+                getOpenPath(docManager.services.contents).then(path => {
+                    if (!path) {
+                        return;
+                    }
+                    // Load image from path
+                    docManager.services.contents.get(path, {
+                        content: true,
+                        type: "file", format: "base64"
+                    }).then(args => {
+                            // Create MIMEBundle
+                            let {name, mimetype, content} = args;
+                            let bundle: nbformat.IMimeBundle = {};
+                            bundle[mimetype] = content;
+
+                            // Store attachment
+                            attachments.set(name, bundle);
+
+                            // Markdown template string to insert image
+                            let markdown = `![${name}](${name})`;
+                            model.value.insert(model.value.text.length, markdown);
+                        },
+                        () => {
+                            console.log(`jupyterlab-attachments: Error, couldn't open path ${path}`);
                         }
-                        // Load image from path
-                        docManager.services.contents.get(path, {
-                            content: true,
-                            type: "file", format: "base64"
-                        }).then(args => {
-                                let {name, mimetype, content} = args;
-                                let bundle: nbformat.IMimeBundle = {};
-                                bundle[mimetype] = content;
-                                attachments.set(name, bundle);
-
-                                var markdown = `![${name}](${name})`;
-                                model.value.insert(0, markdown);
-                                console.log(args);
-                            },
-                            () => {
-                                console.log("Couldn't open path");
-                            }
-                        );
-                    });
-
-                }
+                    );
+                });
             }
         });
 
