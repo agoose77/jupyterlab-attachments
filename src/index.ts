@@ -21,7 +21,6 @@ import {
 
 import {
     getOpenPath,
-    // DocumentManager,
     IDocumentManager,
 } from '@jupyterlab/docmanager';
 
