@@ -41,6 +41,7 @@ namespace CommandIDs {
     export const copyCellAttachments = 'notebook:copy-cell-attachment';
     export const pasteCellAttachments = 'notebook:paste-cell-attachment';
     export const insertImage = 'notebook:insert-image';
+    export const insertImageFromFileBrowser = 'notebook:insert-image-from-file-browser';
 }
 
 
@@ -245,6 +246,20 @@ const extension: JupyterLabPlugin<void> = {
             }
         });
 
+        app.commands.addCommand(CommandIDs.insertImageFromFileBrowser, {
+            execute: () => {
+                const widget = notebookTracker.currentWidget;
+
+                if (!widget) {
+                    return;
+                }
+                console.log(widget);
+            },
+            iconClass: 'jp-MaterialIcon jp-AddIcon',
+            label: 'Attach to Active Cell',
+            mnemonic: 0
+        });
+
         // Add to main menu
         const cellAttachmentActionsGroup = [CommandIDs.cutCellAttachments,
             CommandIDs.copyCellAttachments,
@@ -266,9 +281,18 @@ const extension: JupyterLabPlugin<void> = {
         // Add to command palette
         const category = 'Notebook Cell Operations';
         [
-            CommandIDs.insertImage
+            CommandIDs.insertImage, CommandIDs.copyCellAttachments, CommandIDs.cutCellAttachments, CommandIDs.pasteCellAttachments
         ].forEach(command => {
             palette.addItem({command, category});
+        });
+
+        // matches only non-directory items
+        const selectorNotDir = '.jp-DirListing-item[data-isdir="false"]';
+
+        app.contextMenu.addItem({
+            command: CommandIDs.insertImageFromFileBrowser,
+            selector: selectorNotDir,
+            rank: 1
         });
     }
 };
