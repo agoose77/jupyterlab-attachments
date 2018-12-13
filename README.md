@@ -30,3 +30,6 @@ npm run build
 jupyter lab build
 ```
 
+## Usage
+![From Tree](from_tree)
+![Copy & Paste](copy_paste)
