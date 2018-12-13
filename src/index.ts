@@ -16,6 +16,14 @@ import {
 } from '@jupyterlab/notebook';
 
 import {
+    Contents
+} from '@jupyterlab/services';
+
+import {
+    IFileBrowserFactory
+} from '@jupyterlab/filebrowser';
+
+import {
     ICellModel, IAttachmentsCellModel, Cell
 } from '@jupyterlab/cells'
 
@@ -41,16 +49,19 @@ namespace CommandIDs {
     export const copyCellAttachments = 'notebook:copy-cell-attachment';
     export const pasteCellAttachments = 'notebook:paste-cell-attachment';
     export const insertImage = 'notebook:insert-image';
+    export const insertImageFromFileBrowser = 'notebook:insert-image-from-file-browser';
 }
 
-
+/**
+ * Test whether the given ICellModel is an IAttachmentsCellModel.
+ */
 function cellModelIsIAttachmentsCellModel(model: ICellModel): model is IAttachmentsCellModel {
     return (<IAttachmentsCellModel>model).attachments !== undefined;
 }
 
 
 /**
- * Whether there is an active notebook.
+ * Test whether there is an active notebook.
  */
 function activeNotebookExists(app: JupyterLab, tracker: INotebookTracker): boolean {
     return (
@@ -61,7 +72,7 @@ function activeNotebookExists(app: JupyterLab, tracker: INotebookTracker): boole
 
 
 /**
- * Return active cell if only single cell is selected else null.
+ * Return active cell if only single cell is selected, otherwise return null.
  */
 function getActiveCellIfSingle(tracker: INotebookTracker): Cell {
     const {content} = tracker.currentWidget;
@@ -78,6 +89,9 @@ function getActiveCellIfSingle(tracker: INotebookTracker): Cell {
 }
 
 
+/**
+ * Cut or copy attachments from cell, depending upon flag.
+ */
 function cutOrCopyAttachments(notebook: Notebook, cut: boolean = false) {
     const model = notebook.activeCell.model;
     if (!cellModelIsIAttachmentsCellModel(model))
@@ -110,17 +124,41 @@ function cutOrCopyAttachments(notebook: Notebook, cut: boolean = false) {
 
 
 /**
+ * Insert Markdown code to embed image attachment.
+ */
+function insertImageFromAttachment(attachmentName: string, cellModel: ICellModel) {
+    // Markdown template string to insert image
+    const markdown = `![${attachmentName}](attachment:${attachmentName})`;
+    cellModel.value.insert(cellModel.value.text.length, markdown);
+}
+
+/**
+ * Create cell attachment from IFileModel
+ */
+function createAttachmentFromFileModel(fileModel: Contents.IModel, cellModel: IAttachmentsCellModel) {
+    // Create MIMEBundle
+    const {name, mimetype, content} = fileModel;
+    const bundle: nbformat.IMimeBundle = {};
+    bundle[mimetype] = content;
+    cellModel.attachments.set(name, bundle);
+}
+
+
+/**
  * Initialization data for the jupyterlab-attachments extension.
  */
 const extension: JupyterLabPlugin<void> = {
     id: 'jupyterlab-attachments',
     autoStart: true,
-    requires: [ICommandPalette, IMainMenu, INotebookTracker, IDocumentManager],
-    activate: (app: JupyterLab, palette: ICommandPalette, mainMenu: IMainMenu, notebookTracker: INotebookTracker,
-               docManager: IDocumentManager) => {
-        console.log('JupyterLab extension [4] jupyterlab-attachments is activated!');
+    requires: [ICommandPalette, IMainMenu, INotebookTracker, IDocumentManager, IFileBrowserFactory],
+    activate: (app: JupyterLab,
+               palette: ICommandPalette,
+               mainMenu: IMainMenu,
+               notebookTracker: INotebookTracker,
+               docManager: IDocumentManager,
+               fileBrowserFactory: IFileBrowserFactory) => {
+        console.log('JupyterLab extension jupyterlab-attachments is activated!');
 
-        // Add an application command
         app.commands.addCommand(CommandIDs.insertImage, {
             label: 'Insert Image',
             isEnabled: () => {
@@ -136,11 +174,9 @@ const extension: JupyterLabPlugin<void> = {
                 return activeCell.model.type == "markdown";
             },
             execute: () => {
-                const model = notebookTracker.activeCell.model;
-                if (!cellModelIsIAttachmentsCellModel(model))
+                const cellModel = notebookTracker.activeCell.model;
+                if (!cellModelIsIAttachmentsCellModel(cellModel))
                     return;
-
-                const attachments = model.attachments;
 
                 // Dialogue to request path of image
                 getOpenPath(docManager.services.contents).then(path => {
@@ -151,18 +187,9 @@ const extension: JupyterLabPlugin<void> = {
                     docManager.services.contents.get(path, {
                         content: true,
                         type: "file", format: "base64"
-                    }).then(args => {
-                            // Create MIMEBundle
-                            const {name, mimetype, content} = args;
-                            const bundle: nbformat.IMimeBundle = {};
-                            bundle[mimetype] = content;
-
-                            // Store attachment
-                            attachments.set(name, bundle);
-
-                            // Markdown template string to insert image
-                            const markdown = `![${name}](attachment:${name})`;
-                            model.value.insert(model.value.text.length, markdown);
+                    }).then(fileModel => {
+                            createAttachmentFromFileModel(fileModel, cellModel);
+                            insertImageFromAttachment(fileModel.name, cellModel);
                         },
                         () => {
                             console.log(`jupyterlab-attachments: Error, couldn't open path ${path}`);
@@ -179,10 +206,9 @@ const extension: JupyterLabPlugin<void> = {
             if (!activeNotebookExists(app, notebookTracker))
                 return false;
 
-            const notebook = notebookTracker.currentWidget.content;
-            const selectedCells = notebook.widgets.filter(cell => notebook.isSelectedOrActive(cell));
-            // As long as cells are selected or active
-            return selectedCells.length > 0;
+            const content = notebookTracker.currentWidget.content;
+            const selectedOrActiveCells = content.widgets.filter(cell => content.isSelectedOrActive(cell));
+            return selectedOrActiveCells.length > 0;
         }
 
         app.commands.addCommand(CommandIDs.cutCellAttachments, {
@@ -191,9 +217,7 @@ const extension: JupyterLabPlugin<void> = {
             execute: () => {
                 cutOrCopyAttachments(notebookTracker.currentWidget.content, true);
             }
-
         });
-
         app.commands.addCommand(CommandIDs.copyCellAttachments, {
             label: 'Copy Cell Attachments',
             isEnabled: cellAttachmentCommandIsEnabled,
@@ -201,7 +225,6 @@ const extension: JupyterLabPlugin<void> = {
                 cutOrCopyAttachments(notebookTracker.currentWidget.content);
             }
         });
-
         app.commands.addCommand(CommandIDs.pasteCellAttachments, {
             label: 'Paste Cell Attachments',
             isEnabled: () => {
@@ -211,7 +234,6 @@ const extension: JupyterLabPlugin<void> = {
                 }
                 return cellAttachmentCommandIsEnabled();
             },
-
             execute: () => {
                 const notebook = notebookTracker.currentWidget.content;
                 const attachmentCells = notebook.widgets.filter(
@@ -225,11 +247,10 @@ const extension: JupyterLabPlugin<void> = {
                     return;
                 }
 
-                const attachmentData = clipboard.getData(JUPYTER_ATTACHMENTS_MIME) as nbformat.IAttachments[];
                 notebook.mode = 'command';
 
-                console.log(attachmentData);
-
+                // Paste attachments from all sources, for all targets
+                const attachmentData = clipboard.getData(JUPYTER_ATTACHMENTS_MIME) as nbformat.IAttachments[];
                 attachmentData.forEach(data => {
                     attachmentCells.forEach(cell => {
                             Object.keys(data).forEach(key => {
@@ -240,9 +261,78 @@ const extension: JupyterLabPlugin<void> = {
                     )
                 });
 
-
                 notebook.deselectAll();
             }
+        });
+        function insertFromFileBrowserIsActive(){
+            const widget = notebookTracker.currentWidget;
+            if (!widget) {
+                return false;
+            }
+            const browser = fileBrowserFactory.tracker.currentWidget;
+            const fileModel = browser.selectedItems().next();
+            if (fileModel === undefined) {
+                return false;
+            }
+            if (fileModel.mimetype === null || !fileModel.mimetype.includes("image")) {
+                return false;
+            }
+            const activeCell = widget.content.activeCell;
+            return cellModelIsIAttachmentsCellModel(activeCell.model);
+        }
+        app.commands.addCommand(CommandIDs.insertImageFromFileBrowser, {
+            execute: () => {
+                if (!insertFromFileBrowserIsActive())
+                    return;
+
+                const widget = notebookTracker.currentWidget;
+                const browser = fileBrowserFactory.tracker.currentWidget;
+                const fileModel = browser.selectedItems().next();
+                const cellModel = widget.content.activeCell.model;
+                if (!cellModelIsIAttachmentsCellModel(cellModel)) {
+                    return;
+                }
+
+                let content = fileModel.content;
+                let promise: Promise<Contents.IModel>;
+                // If missing, load contents from file
+                if (content === null) {
+                    promise = docManager.services.contents.get(fileModel.path, {
+                        content: true,
+                        type: "file",
+                        format: "base64"
+                    });
+                } else {
+                    promise = Promise.resolve(fileModel);
+                }
+                // Create attachment from file and insert into markdown cell
+                return promise.then(fileModel => {
+                        createAttachmentFromFileModel(fileModel, cellModel);
+                        insertImageFromAttachment(fileModel.name, cellModel);
+                    },
+                    () => {
+                        console.log(`jupyterlab-attachments: Error, couldn't open path ${fileModel.path}`);
+                    }
+                );
+            },
+            isVisible: insertFromFileBrowserIsActive,
+            iconClass: 'jp-MaterialIcon jp-AddIcon',
+            label: 'Insert Image as Attachment',
+            mnemonic: 0
+        });
+
+        app.commands.addCommand(CommandIDs.insertImageFromFileBrowser, {
+            execute: () => {
+                const widget = notebookTracker.currentWidget;
+
+                if (!widget) {
+                    return;
+                }
+                console.log(widget);
+            },
+            iconClass: 'jp-MaterialIcon jp-AddIcon',
+            label: 'Attach to Active Cell',
+            mnemonic: 0
         });
 
         // Add to main menu
@@ -266,9 +356,18 @@ const extension: JupyterLabPlugin<void> = {
         // Add to command palette
         const category = 'Notebook Cell Operations';
         [
-            CommandIDs.insertImage
+            CommandIDs.insertImage, CommandIDs.copyCellAttachments, CommandIDs.cutCellAttachments, CommandIDs.pasteCellAttachments
         ].forEach(command => {
             palette.addItem({command, category});
+        });
+
+        // matches only non-directory items
+        const selectorNotDir = '.jp-DirListing-item[data-isdir="false"]';
+
+        app.contextMenu.addItem({
+            command: CommandIDs.insertImageFromFileBrowser,
+            selector: selectorNotDir,
+            rank: 1
         });
     }
 };
