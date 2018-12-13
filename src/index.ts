@@ -159,21 +159,25 @@ const extension: JupyterLabPlugin<void> = {
                fileBrowserFactory: IFileBrowserFactory) => {
         console.log('JupyterLab extension jupyterlab-attachments is activated!');
 
+        function canAddImage(){
+            if (!activeNotebookExists(app, notebookTracker))
+                return false;
+
+            // Can only have one active cell
+            const activeCell = getActiveCellIfSingle(notebookTracker);
+            if (activeCell === null)
+                return false;
+
+            // Must be a markdown cell (supporting attachments)
+            return activeCell.model.type == "markdown";
+        }
         app.commands.addCommand(CommandIDs.insertImage, {
             label: 'Insert Image',
-            isEnabled: () => {
-                if (!activeNotebookExists(app, notebookTracker))
-                    return false;
-
-                // Can only have one active cell
-                const activeCell = getActiveCellIfSingle(notebookTracker);
-                if (activeCell === null)
-                    return false;
-
-                // Must be a markdown cell (supporting attachments)
-                return activeCell.model.type == "markdown";
-            },
+            isEnabled: canAddImage,
             execute: () => {
+                if (!canAddImage()){
+                    return;
+                }
                 const cellModel = notebookTracker.activeCell.model;
                 if (!cellModelIsIAttachmentsCellModel(cellModel))
                     return;
@@ -202,7 +206,7 @@ const extension: JupyterLabPlugin<void> = {
         /**
          * Test whether the cell attachment commands (cut, copy, paste) are enabled
          */
-        function cellAttachmentCommandIsEnabled() {
+        function hasSelectedCells() {
             if (!activeNotebookExists(app, notebookTracker))
                 return false;
 
@@ -210,19 +214,22 @@ const extension: JupyterLabPlugin<void> = {
             const selectedOrActiveCells = content.widgets.filter(cell => content.isSelectedOrActive(cell));
             return selectedOrActiveCells.length > 0;
         }
-
         app.commands.addCommand(CommandIDs.cutCellAttachments, {
             label: 'Cut Cell Attachments',
-            isEnabled: cellAttachmentCommandIsEnabled,
+            isEnabled: hasSelectedCells,
             execute: () => {
-                cutOrCopyAttachments(notebookTracker.currentWidget.content, true);
+                if (hasSelectedCells()) {
+                    cutOrCopyAttachments(notebookTracker.currentWidget.content, true);
+                }
             }
         });
         app.commands.addCommand(CommandIDs.copyCellAttachments, {
             label: 'Copy Cell Attachments',
-            isEnabled: cellAttachmentCommandIsEnabled,
+            isEnabled: hasSelectedCells,
             execute: () => {
-                cutOrCopyAttachments(notebookTracker.currentWidget.content);
+                if (hasSelectedCells()) {
+                    cutOrCopyAttachments(notebookTracker.currentWidget.content);
+                }
             }
         });
         app.commands.addCommand(CommandIDs.pasteCellAttachments, {
@@ -232,20 +239,22 @@ const extension: JupyterLabPlugin<void> = {
                 if (!clipboard.hasData(JUPYTER_ATTACHMENTS_MIME)) {
                     return false;
                 }
-                return cellAttachmentCommandIsEnabled();
+                return hasSelectedCells();
             },
             execute: () => {
+                const clipboard = Clipboard.getInstance();
+                if (!clipboard.hasData(JUPYTER_ATTACHMENTS_MIME)) {
+                    return;
+                }
+                if (!hasSelectedCells()){
+                    return;
+                }
                 const notebook = notebookTracker.currentWidget.content;
                 const attachmentCells = notebook.widgets.filter(
                     cell => notebook.isSelectedOrActive(cell)
                 ).filter(
                     cell => cellModelIsIAttachmentsCellModel(cell.model)
                 );
-
-                const clipboard = Clipboard.getInstance();
-                if (!clipboard.hasData(JUPYTER_ATTACHMENTS_MIME)) {
-                    return;
-                }
 
                 notebook.mode = 'command';
 
