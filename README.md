@@ -31,5 +31,5 @@ jupyter lab build
 ```
 
 ## Usage
-![From Tree](from_tree)
-![Copy & Paste](copy_paste)
+![From Tree](from_tree.gif)
+![Copy & Paste](copy_paste.gif)
