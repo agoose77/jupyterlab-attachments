@@ -42,7 +42,6 @@ namespace CommandIDs {
     export const pasteCellAttachments = 'notebook:paste-cell-attachment';
     export const insertImage = 'notebook:insert-image';
 }
-;
 
 
 function cellModelIsIAttachmentsCellModel(model: ICellModel): model is IAttachmentsCellModel {
@@ -173,7 +172,6 @@ const extension: JupyterLabPlugin<void> = {
             }
         });
 
-
         /**
          * Test whether the cell attachment commands (cut, copy, paste) are enabled
          */
@@ -255,7 +253,6 @@ const extension: JupyterLabPlugin<void> = {
                 return {command};
             }
         );
-
         mainMenu.editMenu.addGroup(cellAttachmentActionsGroup, 10);
 
         // Add to edit menu
