@@ -1,6 +1,6 @@
 # jupyterlab-attachments
 
-A JupyterLab extension to add support for attachments in the JupyterLab editor.
+A JupyterLab extension to add support for management of attachments in the JupyterLab editor.
 
 
 ## Prerequisites
