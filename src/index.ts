@@ -321,6 +321,20 @@ const extension: JupyterLabPlugin<void> = {
             mnemonic: 0
         });
 
+        app.commands.addCommand(CommandIDs.insertImageFromFileBrowser, {
+            execute: () => {
+                const widget = notebookTracker.currentWidget;
+
+                if (!widget) {
+                    return;
+                }
+                console.log(widget);
+            },
+            iconClass: 'jp-MaterialIcon jp-AddIcon',
+            label: 'Attach to Active Cell',
+            mnemonic: 0
+        });
+
         // Add to main menu
         const cellAttachmentActionsGroup = [CommandIDs.cutCellAttachments,
             CommandIDs.copyCellAttachments,
