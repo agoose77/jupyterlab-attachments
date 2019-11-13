@@ -2,6 +2,8 @@
 
 A JupyterLab extension to add support for management of attachments in the JupyterLab editor.
 
+# DEPRECATED
+This support is now in `1.2.0`
 
 ## Prerequisites
 
